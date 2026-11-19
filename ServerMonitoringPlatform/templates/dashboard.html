@@ -161,7 +161,7 @@
         // --- Threshold & Status Config ---
         const CPU_THRESHOLD = 85;
         const RAM_THRESHOLD = 90;
-        const ONLINE_TIMEOUT_MS = 10000; // Mark server offline if no data for 10 seconds
+        const ONLINE_TIMEOUT_MS = 10000;
         let lastAlertToastTime = 0;
 
         // --- Theme Toggle ---
@@ -251,13 +251,15 @@
             });
 
             if (isDrillDown && currentDrillDownServer) {
-                renderLevel2(currentDrillDownServer);
+                renderLevel2(currentDrillDownServer, false);
             } else {
                 renderLevel1(bgOpt);
             }
 
             barChart.on('click', function (params) {
-                if (!isDrillDown) renderLevel2(params.name);
+                if (!isDrillDown && params.name) {
+                    renderLevel2(params.name, true);
+                }
             });
         }
 
@@ -341,7 +343,6 @@
                         return;
                     }
 
-                    // Check if the latest record is within the 10-second online window
                     const latestTime = new Date(data[0].timestamp.replace(' ', 'T')).getTime();
                     const isOnline = !isNaN(latestTime) && (Date.now() - latestTime) <= ONLINE_TIMEOUT_MS;
                     setOnlineStatus(isOnline);
@@ -374,33 +375,37 @@
             fetch('/api/servers/overview')
                 .then(res => res.json())
                 .then(data => {
-                    if (barChart) {
-                        barChart.setOption({
-                            ...bgOpt,
-                            ...extraOpts,
-                            tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-                            grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-                            xAxis: { type: 'category', data: data.map(i => i.hostname) },
-                            yAxis: { type: 'value', max: 100, name: 'CPU %' },
-                            series: [{
-                                name: 'Total CPU Load',
-                                type: 'bar',
-                                barWidth: '40%',
-                                data: data.map(i => ({
-                                    value: i.cpu_percent,
-                                    itemStyle: {
-                                        color: i.cpu_percent > CPU_THRESHOLD ? '#ef4444' : '#6366f1',
-                                        borderRadius: [4, 4, 0, 0]
-                                    }
-                                }))
-                            }]
-                        }, true);
-                    }
+                    // Guard against stale async response overwriting drill-down view
+                    if (isDrillDown || !barChart) return;
+
+                    // Sort servers by CPU load descending (high to low)
+                    const sorted = [...data].sort((a, b) => (b.cpu_percent || 0) - (a.cpu_percent || 0));
+
+                    barChart.setOption({
+                        ...bgOpt,
+                        ...extraOpts,
+                        tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+                        grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+                        xAxis: { type: 'category', data: sorted.map(i => i.hostname) },
+                        yAxis: { type: 'value', max: 100, name: 'CPU %' },
+                        series: [{
+                            name: 'Total CPU Load',
+                            type: 'bar',
+                            barWidth: '40%',
+                            data: sorted.map(i => ({
+                                value: i.cpu_percent,
+                                itemStyle: {
+                                    color: i.cpu_percent > CPU_THRESHOLD ? '#ef4444' : '#6366f1',
+                                    borderRadius: [4, 4, 0, 0]
+                                }
+                            }))
+                        }]
+                    }, true);
                 })
                 .catch(err => console.error('API Error (/api/servers/overview):', err));
         }
 
-        function renderLevel2(serverName) {
+        function renderLevel2(serverName, showNotice = true) {
             isDrillDown = true;
             currentDrillDownServer = serverName;
             backBtn.classList.remove('hidden');
@@ -412,23 +417,30 @@
             fetch('/api/processes?hostname=' + encodeURIComponent(serverName))
                 .then(res => res.json())
                 .then(data => {
-                    if (barChart) {
-                        barChart.setOption({
-                            ...bgOpt,
-                            tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-                            grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-                            xAxis: { type: 'category', data: data.map(i => i.process_name) },
-                            yAxis: { type: 'value', max: 100, name: 'Memory %' },
-                            series: [{
-                                name: 'Process RAM Load',
-                                type: 'bar',
-                                barWidth: '40%',
-                                data: data.map(i => i.memory_percent),
-                                itemStyle: { color: '#10b981', borderRadius: [4, 4, 0, 0] }
-                            }]
-                        }, true);
+                    // Guard against stale async response if user already went back
+                    if (!isDrillDown || currentDrillDownServer !== serverName || !barChart) return;
+
+                    // Sort processes by RAM usage descending (high to low)
+                    const sorted = [...data].sort((a, b) => (b.memory_percent || 0) - (a.memory_percent || 0));
+
+                    barChart.setOption({
+                        ...bgOpt,
+                        tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+                        grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+                        xAxis: { type: 'category', data: sorted.map(i => i.process_name) },
+                        yAxis: { type: 'value', max: 100, name: 'Memory %' },
+                        series: [{
+                            name: 'Process RAM Load',
+                            type: 'bar',
+                            barWidth: '40%',
+                            data: sorted.map(i => i.memory_percent),
+                            itemStyle: { color: '#10b981', borderRadius: [4, 4, 0, 0] }
+                        }]
+                    }, true);
+
+                    if (showNotice) {
+                        showToast(`Drilled down into ${serverName}`, 'info');
                     }
-                    showToast(`Drilled down into ${serverName}`, 'info');
                 })
                 .catch(err => console.error('API Error (/api/processes):', err));
         }
@@ -506,7 +518,11 @@
             setInterval(() => {
                 fetchRealTimeData();
                 fetchGlobalAlerts();
-                if (!isDrillDown) renderLevel1();
+                if (isDrillDown && currentDrillDownServer) {
+                    renderLevel2(currentDrillDownServer, false);
+                } else {
+                    renderLevel1();
+                }
             }, 2000);
         };
 
