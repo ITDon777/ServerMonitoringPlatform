@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Historical Data - Server Monitoring</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = { darkMode: 'class' }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+
+    <!-- Load Flatpickr to force English Date Picker UI -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200 min-h-screen p-6 transition-colors duration-300">
+
+    <header class="mb-6 flex justify-between items-center bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Historical Data (SQLite)</h1>
+            <p class="text-sm text-slate-500 dark:text-slate-400">View and filter past server metrics</p>
+        </div>
+        <div class="flex items-center gap-4">
+            <!-- Navigation link back to real-time dashboard -->
+            <a href="/" class="px-4 py-2 bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400 hover:bg-indigo-100 rounded-lg text-sm font-semibold transition-colors">
+                Back to Real-time
+            </a>
+            <a href="/logout" class="px-4 py-2 bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400 hover:bg-red-100 rounded-lg text-sm font-semibold transition-colors">
+                Logout
+            </a>
+        </div>
+    </header>
+
+    <!-- Filters Section -->
+    <div class="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700 mb-6 flex flex-wrap gap-4 items-end">
+        <div>
+            <label class="block text-sm font-semibold mb-1">Target Server:</label>
+            <select id="serverSelect" onchange="fetchHistory()" class="bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg p-2 text-sm">
+                {% for s in servers %}
+                <option value="{{ s.id }}">{{ s.hostname }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label class="block text-sm font-semibold mb-1">Start Date:</label>
+            <input type="text" id="startDate" placeholder="YYYY-MM-DD" class="bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg p-2 text-sm">
+        </div>
+        <div>
+            <label class="block text-sm font-semibold mb-1">End Date:</label>
+            <input type="text" id="endDate" placeholder="YYYY-MM-DD" class="bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg p-2 text-sm">
+        </div>
+        <button onclick="fetchHistory()" class="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-semibold transition-colors">
+            Query SQLite
+        </button>
+    </div>
+
+    <!-- Chart Container -->
+    <div class="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700">
+        <div id="historyChart" class="w-full h-[500px]"></div>
+    </div>
+
+    <!-- Alert History Table -->
+    <div class="mt-6 bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700">
+        <h2 class="text-lg font-semibold mb-4 text-slate-900 dark:text-white">Alert History - All Servers (CPU &gt; 85% or RAM &gt; 90%)</h2>
+        <div class="overflow-x-auto max-h-[320px] overflow-y-auto rounded-lg border border-slate-100 dark:border-slate-700">
+            <table class="w-full text-left text-sm whitespace-nowrap border-collapse">
+                <!-- Solid opaque sticky header to prevent scrolled rows from showing through -->
+                <thead class="bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 sticky top-0 z-10 shadow-sm">
+                    <tr>
+                        <th class="px-4 py-3 font-semibold bg-slate-100 dark:bg-slate-700">Timestamp</th>
+                        <th class="px-4 py-3 font-semibold bg-slate-100 dark:bg-slate-700">Server</th>
+                        <th class="px-4 py-3 font-semibold bg-slate-100 dark:bg-slate-700">CPU %</th>
+                        <th class="px-4 py-3 font-semibold bg-slate-100 dark:bg-slate-700">RAM %</th>
+                        <th class="px-4 py-3 font-semibold bg-slate-100 dark:bg-slate-700">Reason</th>
+                    </tr>
+                </thead>
+                <tbody id="alertHistoryBody" class="divide-y divide-slate-100 dark:divide-slate-700/50 bg-white dark:bg-slate-800">
+                    <tr>
+                        <td colspan="5" class="px-4 py-6 text-center text-slate-500">No alerts recorded for this period.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // Apply Dark Mode from localStorage
+        if (localStorage.getItem('theme') === 'dark') {
+            document.documentElement.classList.add('dark');
+        }
+
+        const theme = document.documentElement.classList.contains('dark') ? 'dark' : null;
+        const chart = echarts.init(document.getElementById('historyChart'), theme);
+        const bgOpt = theme === 'dark' ? { backgroundColor: 'transparent' } : {};
+
+        // Configure chart with dataZoom (scrollbar) for large datasets
+        chart.setOption({
+            ...bgOpt,
+            tooltip: { trigger: 'axis' },
+            legend: { data: ['CPU %', 'RAM %'], bottom: 0 },
+            dataZoom: [{ type: 'inside', start: 0, end: 100 }, { start: 0, end: 100 }],
+            xAxis: { type: 'category', data: [] },
+            yAxis: { type: 'value', max: 100 },
+            series: [
+                { name: 'CPU %', type: 'line', data: [], itemStyle: { color: '#ee6666' } },
+                { name: 'RAM %', type: 'line', data: [], itemStyle: { color: '#5470c6' } }
+            ]
+        });
+
+        // Initialize Flatpickr to force English UI
+        flatpickr("#startDate", { dateFormat: "Y-m-d" });
+        flatpickr("#endDate", { dateFormat: "Y-m-d" });
+
+        // Fetch data from sqlite3 via API
+        function fetchHistory() {
+            const serverId = document.getElementById('serverSelect').value;
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+
+            let url = `/api/history_data?server_id=${serverId}`;
+            if (startDate) url += `&start_date=${startDate}`;
+            if (endDate) url += `&end_date=${endDate}`;
+
+            fetch(url)
+                .then(res => res.json())
+                .then(data => {
+                    const timestamps = data.map(i => i.timestamp).reverse();
+                    const cpu = data.map(i => i.cpu_percent).reverse();
+                    const ram = data.map(i => i.memory_percent).reverse();
+
+                    chart.setOption({
+                        xAxis: { data: timestamps },
+                        series: [{ data: cpu }, { data: ram }]
+                    });
+                })
+                .catch(err => console.error("Error fetching SQLite data:", err));
+            // Fetch alert records across all servers for the selected date range
+            let alertUrl = `/api/alert_history?server_id=all`;
+            if (startDate) alertUrl += `&start_date=${startDate}`;
+            if (endDate) alertUrl += `&end_date=${endDate}`;
+
+            fetch(alertUrl)
+                .then(res => res.json())
+                .then(alerts => {
+                    const tbody = document.getElementById('alertHistoryBody');
+                    if (!alerts || alerts.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="5" class="px-4 py-6 text-center text-slate-500">No alerts recorded for this period.</td></tr>';
+                        return;
+                    }
+
+                    tbody.innerHTML = alerts.map(a => `
+                            <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/20">
+                                <td class="px-4 py-2.5 font-mono text-slate-600 dark:text-slate-300">${a.timestamp}</td>
+                                <td class="px-4 py-2.5 font-semibold text-slate-900 dark:text-white">${a.hostname}</td>
+                                <td class="px-4 py-2.5 font-semibold ${a.cpu_percent > 85 ? 'text-red-600 dark:text-red-400' : ''}">${a.cpu_percent}%</td>
+                                <td class="px-4 py-2.5 font-semibold ${a.memory_percent > 90 ? 'text-red-600 dark:text-red-400' : ''}">${a.memory_percent}%</td>
+                                <td class="px-4 py-2.5"><span class="px-2 py-0.5 rounded bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 text-xs font-semibold">${a.reason}</span></td>
+                            </tr>
+                        `).join('');
+                })
+                .catch(err => console.error("Error fetching alert history:", err));
+        }
+
+        // Auto-fetch on load
+        fetchHistory();
+        window.addEventListener('resize', () => chart.resize());
+    </script>
+</body>
+</html>

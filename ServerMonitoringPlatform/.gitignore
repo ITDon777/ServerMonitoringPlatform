@@ -1,0 +1,17 @@
+# Python 缓存与虚拟环境
+__pycache__/
+*.py[cod]
+env/
+venv/
+.venv/
+
+# SQLite 本地数据库
+*.db
+*.db-wal
+*.db-shm
+
+# Visual Studio 临时文件
+.vs/
+obj/
+*.user
+*.suo

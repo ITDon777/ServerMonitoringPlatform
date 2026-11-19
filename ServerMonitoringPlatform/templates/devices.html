@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manage Devices - Server Monitoring</title>
+
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>tailwind.config = { darkMode: 'class' }</script>
+
+    <!-- Load Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200 min-h-screen p-6 transition-colors duration-300">
+
+    <!-- Header Section -->
+    <header class="mb-6 flex justify-between items-center bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Device Management</h1>
+            <p class="text-sm text-slate-500 dark:text-slate-400">Add, edit, or remove monitored target devices</p>
+        </div>
+        <div class="flex items-center gap-4">
+            <a href="/" class="px-4 py-2 bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400 hover:bg-indigo-100 rounded-lg text-sm font-semibold transition-colors">
+                Back to Dashboard
+            </a>
+        </div>
+    </header>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+
+        <!-- Add Device Form -->
+        <div class="md:col-span-1 bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700 h-fit">
+            <h2 class="text-lg font-semibold mb-4 border-b pb-2 dark:border-slate-700">Add New Device</h2>
+
+            {% if error %}
+            <div class="mb-4 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 p-3 rounded-lg text-sm border border-red-100 dark:border-red-800 font-semibold">
+                {{ error }}
+            </div>
+            {% endif %}
+
+            <form action="/devices" method="POST" class="flex flex-col gap-4">
+                <div>
+                    <label class="block text-sm font-semibold mb-1">Hostname / Name</label>
+                    <input type="text" name="hostname" required placeholder="e.g. WIN-NODE-03"
+                           oninvalid="this.setCustomValidity('This field is required. Please enter a device name.')"
+                           oninput="this.setCustomValidity('')"
+                           class="w-full bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold mb-1">IP Address</label>
+                    <input type="text" name="ip_address" required placeholder="e.g. 192.168.1.10"
+                           oninvalid="this.setCustomValidity('This field is required. Please enter an IP address.')"
+                           oninput="this.setCustomValidity('')"
+                           class="w-full bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+                <button type="submit" class="mt-2 w-full px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-semibold transition-colors">
+                    Save Device
+                </button>
+            </form>
+        </div>
+
+        <!-- Devices Table List -->
+        <div class="md:col-span-2 bg-white dark:bg-slate-800 p-0 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm whitespace-nowrap">
+                    <thead class="bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-200">
+                        <tr>
+                            <th class="px-6 py-4 font-semibold">No.</th>
+                            <th class="px-6 py-4 font-semibold">Hostname</th>
+                            <th class="px-6 py-4 font-semibold">IP Address</th>
+                            <th class="px-6 py-4 font-semibold text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
+                        {% for d in devices %}
+                        <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/20 transition-colors">
+                            <td class="px-6 py-4">#{{ loop.index }}</td>
+                            <td class="px-6 py-4 font-semibold text-slate-900 dark:text-white">{{ d.hostname }}</td>
+                            <td class="px-6 py-4 font-mono text-slate-500 dark:text-slate-400">{{ d.ip_address }}</td>
+                            <td class="px-6 py-4 text-right">
+                                <!-- Edit Action Button -->
+                                <button type="button"
+                                        data-id="{{ d.id }}"
+                                        data-hostname="{{ d.hostname }}"
+                                        data-ip="{{ d.ip_address }}"
+                                        onclick="openEditModal(this)"
+                                        class="px-3 py-1.5 bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 rounded-lg text-xs font-semibold transition-colors mr-2">
+                                    Edit
+                                </button>
+                                <!-- Delete Action Form -->
+                                <form action="/devices/delete/{{ d.id }}" method="POST" class="inline">
+                                    <button type="submit" class="px-3 py-1.5 bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50 rounded-lg text-xs font-semibold transition-colors">
+                                        Delete
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+
+                        {% if not devices %}
+                        <tr>
+                            <td colspan="4" class="px-6 py-8 text-center text-slate-500">No devices monitored yet.</td>
+                        </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Edit Device Modal -->
+    <div id="editModal" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-white dark:bg-slate-800 w-full max-w-md rounded-xl shadow-xl border border-slate-100 dark:border-slate-700 p-6">
+            <div class="flex justify-between items-center mb-4 border-b border-slate-100 dark:border-slate-700 pb-3">
+                <h2 class="text-lg font-bold text-slate-900 dark:text-white">Edit Device</h2>
+                <button type="button" onclick="closeEditModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xl leading-none">&times;</button>
+            </div>
+
+            <form id="editForm" method="POST" class="flex flex-col gap-4">
+                <div>
+                    <label for="editHostname" class="block text-sm font-semibold mb-1">Hostname / Name</label>
+                    <input type="text" id="editHostname" name="hostname" required
+                           oninvalid="this.setCustomValidity('This field is required. Please enter a device name.')"
+                           oninput="this.setCustomValidity('')"
+                           class="w-full bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+                <div>
+                    <label for="editIp" class="block text-sm font-semibold mb-1">IP Address</label>
+                    <input type="text" id="editIp" name="ip_address" required
+                           oninvalid="this.setCustomValidity('This field is required. Please enter an IP address.')"
+                           oninput="this.setCustomValidity('')"
+                           class="w-full bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+                <div class="flex justify-end gap-2 mt-2">
+                    <button type="button" onclick="closeEditModal()" class="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-lg text-sm font-semibold transition-colors">
+                        Cancel
+                    </button>
+                    <button type="submit" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-semibold transition-colors">
+                        Save Changes
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Apply Dark Mode from localStorage to match main dashboard theme
+        if (localStorage.getItem('theme') === 'dark') {
+            document.documentElement.classList.add('dark');
+        }
+
+        // Open edit modal with selected device data
+        function openEditModal(button) {
+            const deviceId = button.getAttribute('data-id');
+            const hostname = button.getAttribute('data-hostname');
+            const ip = button.getAttribute('data-ip');
+
+            document.getElementById('editForm').action = `/devices/edit/${deviceId}`;
+            document.getElementById('editHostname').value = hostname;
+            document.getElementById('editIp').value = ip;
+            document.getElementById('editModal').classList.remove('hidden');
+        }
+
+        function closeEditModal() {
+            document.getElementById('editModal').classList.add('hidden');
+        }
+    </script>
+</body>
+</html>
